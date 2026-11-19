@@ -385,6 +385,13 @@ local function startDownload(self, credentials, chapter, attempt)
         result.path = chapter_path
         return result
     end
+    -- Pages are already-compressed images, so deflate costs CPU for almost no
+    -- size gain on e-readers. Older KOReader builds lack this method; they keep
+    -- libarchive's default and the download proceeds normally.
+    if type(writer.setZipCompression) == "function" then
+        writer.err = nil
+        if not writer:setZipCompression("store") then writer.err = nil end
+    end
 
     return {
         ok = true,

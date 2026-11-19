@@ -9,6 +9,9 @@ Personal fork of [LK4D4/suwayomi.koplugin](https://github.com/LK4D4/suwayomi.kop
   always downloads page by page. Fetching and validating the full archive could
   trigger the Linux OOM killer and crash KOReader. Other devices are unchanged.
   See `suwayomi/downloads/downloader.lua` and `spec/suwayomi_downloader_spec.lua`.
+- **Uncompressed chapter archives.** Page-by-page downloads write CBZs with zip
+  "store" instead of deflate. Pages are already-compressed images, so deflate only
+  cost CPU time. Older KOReader builds without `setZipCompression` keep the default.
 
 ## Staying up to date
 

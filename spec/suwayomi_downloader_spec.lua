@@ -200,6 +200,24 @@ describe("suwayomi/downloads/downloader", function()
         assert.are.equal(1, archive.validate(target).pages)
     end)
 
+    it("stores page images without recompressing them", function()
+        local page = string.rep("compressible page bytes ", 512)
+        api.downloadChapterArchive = function() return { ok = false, status_code = 404 } end
+        api.downloadBinary = function() return { ok = true, body = page, content_type = "image/jpeg" } end
+        assert.is_true(download().ok)
+        local zip, methods, at = bytes(target), {}, 1
+        while true do
+            local header = zip:find("PK\003\004", at, true)
+            if not header then break end
+            local low, high = zip:byte(header + 8, header + 9)
+            table.insert(methods, low + high * 256)
+            at = header + 4
+        end
+        assert.is_true(#methods >= 2)
+        for _, method in ipairs(methods) do assert.are.equal(0, method) end
+        assert.are.equal(2, archive.validate(target).pages)
+    end)
+
     it("skips the direct archive on low-memory e-readers and downloads pages", function()
         package.loaded.device = { isKobo = function() return true end }
         package.loaded["suwayomi/downloads/downloader"] = nil

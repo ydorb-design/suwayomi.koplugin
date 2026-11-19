@@ -26,6 +26,8 @@ void archive_entry_set_perm(struct archive_entry *, int);
 int archive_write_header(struct archive *, struct archive_entry *);
 long archive_write_data(struct archive *, const void *, size_t);
 int archive_write_close(struct archive *);
+int archive_write_zip_set_compression_store(struct archive *);
+int archive_write_zip_set_compression_deflate(struct archive *);
 ]]
 local native = ffi.load("libarchive.so.13")
 local Native = {}
@@ -46,6 +48,25 @@ function Writer:open(path, format)
         or native.archive_write_open_filename(self.archive, path) ~= 0 then
         self.err = message(self.archive)
         return false
+    end
+    return true
+end
+
+-- Mirrors koreader-base ffi/archiver: returns true on success, nil otherwise.
+function Writer:setZipCompression(method)
+    if not self.archive then return end
+    local r
+    if method == "store" then
+        r = native.archive_write_zip_set_compression_store(self.archive)
+    elseif method == "deflate" then
+        r = native.archive_write_zip_set_compression_deflate(self.archive)
+    else
+        self.err = "unsuported method"
+        return
+    end
+    if r ~= 0 then
+        self.err = message(self.archive)
+        return
     end
     return true
 end
