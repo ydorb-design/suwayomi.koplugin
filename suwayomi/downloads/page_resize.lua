@@ -13,7 +13,7 @@ local PageResize = {}
 
 -- Decoding allocates the full source bitmap: skip pages above this size so a
 -- resize can never be what pushes an e-reader out of memory.
-PageResize.MAX_SOURCE_PIXELS = 12 * 1000 * 1000
+PageResize.MAX_SOURCE_PIXELS = 8 * 1000 * 1000
 -- Re-encoding costs quality and time; only worth it for a clear reduction.
 PageResize.MAX_SCALE = 0.85
 PageResize.JPEG_QUALITY = 90

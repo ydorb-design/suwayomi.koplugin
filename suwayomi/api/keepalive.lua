@@ -169,7 +169,11 @@ local function exchange(sock, parsed, headers, sink)
     if not code then return nil, "malformed status line" end
     local response_headers, header_err = readHeaders(sock)
     if not response_headers then return nil, header_err end
-    local body_ok, body_err = readBody(sock, response_headers, sink)
+    local body_ok, body_err = true, nil
+    -- These responses never carry a body, whatever their headers say.
+    if not (code < 200 or code == 204 or code == 304) then
+        body_ok, body_err = readBody(sock, response_headers, sink)
+    end
     if not body_ok then return nil, body_err end
     local connection = (response_headers.connection or ""):lower()
     local reusable = body_err ~= "closed" and not connection:find("close", 1, true)

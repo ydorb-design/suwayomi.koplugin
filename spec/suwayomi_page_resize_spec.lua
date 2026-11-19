@@ -77,7 +77,7 @@ describe("suwayomi/downloads/page_resize", function()
         end)
 
         it("narrows long strips to the screen width only", function()
-            assert.same({ 1264, 4740 }, { PageResize.targetSize(1600, 6000, 1264, 1680) })
+            assert.same({ 1264, 4213 }, { PageResize.targetSize(1500, 5000, 1264, 1680) })
             assert.is_nil(PageResize.targetSize(1000, 8000, 1264, 1680))
         end)
 
