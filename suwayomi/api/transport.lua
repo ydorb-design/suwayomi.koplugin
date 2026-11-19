@@ -8,6 +8,8 @@
 -- normalized here before the API facade parses or returns them. GraphQL errors
 -- retain only transient classification or public schema-compatibility fields.
 
+local KeepAlive = require("suwayomi/api/keepalive")
+
 local Transport = {}
 local session
 
@@ -644,23 +646,44 @@ local function downloadBinary(credentials, page_url, log_debug_event, request_op
     local client = request_url:match("^https://") and require("ssl.https") or require("socket.http")
     local response_chunks = {}
     local headers = {}
+    local same_origin = not page_url:match("^https?://") or isSameOrigin(server_url, request_url)
 
-    if not page_url:match("^https?://") or isSameOrigin(server_url, request_url) then
+    if same_origin then
         headers = Transport.buildRequestHeaders(credentials)
     end
 
-    local started_at = now()
-    local ok, code, response_headers = client.request{
-        url = request_url,
-        method = "GET",
-        headers = headers,
-        redirect = redirectPolicy(credentials),
-        sink = buildGuardedTableSink(response_chunks, {
+    local function newSink()
+        response_chunks = {}
+        return buildGuardedTableSink(response_chunks, {
             max_bytes = request_options.max_bytes or MAX_BINARY_RESPONSE_BYTES,
             total_timeout_seconds = request_options.total_timeout_seconds,
-        }),
-        timeout = REQUEST_TIMEOUT_SECONDS,
-    }
+        })
+    end
+
+    local started_at = now()
+    local ok, code, response_headers
+    local reused_connection = false
+    -- Page downloads reuse one connection. Redirects and transport failures
+    -- fall back to the one-shot request below, which follows the redirect policy.
+    if request_options.keep_alive and same_origin then
+        local response, keep_alive_error = KeepAlive.request(request_url, headers, newSink, REQUEST_TIMEOUT_SECONDS)
+        if response and (response.code < 300 or response.code >= 400) then
+            ok, code, response_headers, reused_connection = 1, response.code, response.headers, true
+        elseif not response and (keep_alive_error == RESPONSE_TOO_LARGE_ERROR
+            or keep_alive_error == RESPONSE_TIMEOUT_ERROR) then
+            ok, code = nil, keep_alive_error
+        end
+    end
+    if code == nil then
+        ok, code, response_headers = client.request{
+            url = request_url,
+            method = "GET",
+            headers = headers,
+            redirect = redirectPolicy(credentials),
+            sink = newSink(),
+            timeout = REQUEST_TIMEOUT_SECONDS,
+        }
+    end
 
     response_headers = response_headers or {}
     local body = table.concat(response_chunks)
@@ -673,7 +696,8 @@ local function downloadBinary(credentials, page_url, log_debug_event, request_op
         code_type = type(code),
         elapsed_ms = math.floor(((finished_at - started_at) * 1000) + 0.5),
         response_bytes = #body,
-        same_origin = (not page_url:match("^https?://") or isSameOrigin(server_url, request_url)) == true,
+        same_origin = same_origin == true,
+        keep_alive = reused_connection,
     })
     if code == 200 then
         return {
@@ -889,6 +913,10 @@ end
 function Transport.performGraphQLRequest(credentials, request_body, operation_name, log_debug_event, options)
     return withSession(credentials, options and options.timeout_seconds, performGraphQLRequest,
         request_body, operation_name, log_debug_event, options)
+end
+
+function Transport.closeKeepAlive()
+    KeepAlive.close()
 end
 
 function Transport.downloadBinary(credentials, page_url, log_debug_event, request_options)

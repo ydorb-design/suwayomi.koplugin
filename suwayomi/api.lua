@@ -520,6 +520,10 @@ function SuwayomiAPI.downloadBinary(credentials, page_url, options)
     return transport.downloadBinary(credentials, page_url, logDebugEvent, options)
 end
 
+function SuwayomiAPI.closeKeepAlive()
+    if transport.closeKeepAlive then transport.closeKeepAlive() end
+end
+
 function SuwayomiAPI.downloadChapterArchive(credentials, chapter_id, target_path, options)
     return transport.downloadChapterArchive(credentials, chapter_id, target_path, logDebugEvent, options)
 end

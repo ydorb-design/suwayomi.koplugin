@@ -473,7 +473,7 @@ function Downloader:downloadNextPage(job)
 
     local next_index = job.current + 1
     local binary = callWithTransientRetry(function()
-        return SuwayomiAPI.downloadBinary(job.credentials, job.pages[next_index])
+        return SuwayomiAPI.downloadBinary(job.credentials, job.pages[next_index], { keep_alive = true })
     end)
     if not binary.ok then
         local result = self:failAndCleanup(binary.error, job.partial_path, job.writer, isRetryableResult(binary))
