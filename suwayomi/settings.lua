@@ -2,7 +2,8 @@
 --
 -- Responsibility: load, normalize, save, and flush Suwayomi plugin settings from
 -- KOReader's settings directory.
--- Owned state: cached LuaSettings handle, settings store, and settings file path.
+-- Owned state: cached LuaSettings handle, settings store, settings file path, and
+-- per-manga chapter list files in the suwayomi_chapters/ directory beside it.
 -- Dependencies: datastorage, luasettings, and suwayomi/settings/store.
 -- External data: stored settings tables are treated as optional and normalized
 -- before callers consume them.
@@ -343,6 +344,7 @@ end
 
 function SuwayomiSettings:setStore(store)
     self.store = store
+    self.fenced_chapter_stores = nil
 end
 
 function SuwayomiSettings:setIoAdapter(io_adapter)
@@ -353,10 +355,16 @@ function SuwayomiSettings:setIoAdapter(io_adapter)
 end
 
 function SuwayomiSettings:isBlocked()
-    return self:getStore():isBlocked()
+    if self:getStore():isBlocked() then return true end
+    return next(self.fenced_chapter_stores or {}) ~= nil
 end
 
 function SuwayomiSettings:reconcile()
+    for path, store in pairs(self.fenced_chapter_stores or {}) do
+        local ok, reason = store:reconcile()
+        if not ok then return ok, reason end
+        self.fenced_chapter_stores[path] = nil
+    end
     return self:getStore():reconcile()
 end
 
@@ -609,33 +617,135 @@ local function chapterCacheCollection(cache, scope)
         and type(cache.mangas) == "table"
 end
 
+-- Chapter lists live in one small file per manga under suwayomi_chapters/ so
+-- that frequent saves of the main settings document (download queue, read
+-- ledger) never rewrite every saved chapter list. A legacy in-document
+-- chapter_cache is still read, and is migrated on the next chapter list save.
+local CHAPTER_CACHE_SUFFIX = "_chapters"
+local CHAPTER_CACHE_FILE_VERSION = 1
+
+-- Derived from the settings document path: suwayomi.lua -> suwayomi_chapters/.
+function SuwayomiSettings:getChapterCacheDir()
+    local path = tostring(self:getStore().path or self.settings_file)
+    return (path:match("^(.*)%.lua$") or path) .. CHAPTER_CACHE_SUFFIX
+end
+
+local function chapterCacheFileName(manga_id)
+    local key = tostring(manga_id)
+    if #key <= 64 and key:match("^[%w_%-]+$") then return "manga_" .. key .. ".lua" end
+    local encoded = key:gsub(".", function(char) return string.format("%02x", char:byte()) end)
+    return "manga_x" .. encoded:sub(1, 128) .. ".lua"
+end
+
+-- Stores are created per call so chapter lists are not all held in memory. A
+-- store whose replacement became ambiguous is kept, keeping the previous
+-- listing visible, until reconcile() checks the file on disk.
+function SuwayomiSettings:chapterCacheStore(manga_id)
+    local path = self:getChapterCacheDir() .. "/" .. chapterCacheFileName(manga_id)
+    local fenced = self.fenced_chapter_stores and self.fenced_chapter_stores[path]
+    if fenced then return fenced end
+    return SettingsStore:new({ path = path, io = self:getStore().io })
+end
+
+-- Returns true when per-manga files can be used; create only when saving.
+function SuwayomiSettings:chapterCacheDirReady(create)
+    local io_adapter = self:getStore().io
+    local dir = self:getChapterCacheDir()
+    if not io_adapter.dir_exists then return false end
+    if io_adapter.dir_exists(dir) then return true end
+    if not create or not io_adapter.mkdir then return false end
+    local ok = pcall(io_adapter.mkdir, dir)
+    return ok and io_adapter.dir_exists(dir) == true
+end
+
+local function chapterCacheFile(doc, scope)
+    return type(doc) == "table" and doc.version == CHAPTER_CACHE_FILE_VERSION
+        and doc.endpoint_scope == scope and type(doc.listing) == "table"
+end
+
+local function writeChapterCacheFile(settings, scope, manga_id, listing)
+    if settings:isBlocked() then return nil, "store_blocked_ambiguous_transaction" end
+    local store = settings:chapterCacheStore(manga_id)
+    local ok, err = store:saveDocument(function(doc)
+        for key in pairs(doc) do doc[key] = nil end
+        doc.version = CHAPTER_CACHE_FILE_VERSION
+        doc.endpoint_scope = scope
+        doc.listing = copyLibraryValue(listing)
+    end)
+    if not ok and store:isBlocked() then
+        settings.fenced_chapter_stores = settings.fenced_chapter_stores or {}
+        settings.fenced_chapter_stores[store.path] = store
+    end
+    return ok, err
+end
+
+-- Best effort: listings already in their own file win over the legacy copy.
+-- On failure the legacy key is kept and migration is retried on a later save.
+function SuwayomiSettings:migrateLegacyChapterCache(scope)
+    local store = self:getStore()
+    local legacy = store:readKey("chapter_cache")
+    if legacy == nil then return true end
+    if chapterCacheCollection(legacy, scope) then
+        for key, saved in pairs(legacy.mangas) do
+            if usableChapterListing(self, saved, scope) and key == tostring(saved.manga.id)
+                and not chapterCacheFile(self:chapterCacheStore(key):load(), scope) then
+                local ok, err = writeChapterCacheFile(self, scope, key, saved)
+                if not ok then return nil, err end
+            end
+        end
+    end
+    local ok, err = store:saveDocument(function(doc) doc.chapter_cache = nil end)
+    if not ok then return nil, err end
+    if store.luasettings and type(store.luasettings.data) == "table" then
+        store.luasettings.data.chapter_cache = nil
+    end
+    return true
+end
+
 function SuwayomiSettings:loadChapterCache(credentials, manga)
     local scope = self:normalizeEndpointScope(type(credentials) == "table" and credentials.server_url)
     if not scope or not chapterCacheIdentity(self, manga, scope) then return nil end
-    local cache = self:getStore():readKey("chapter_cache")
-    if not chapterCacheCollection(cache, scope) then return nil end
-    local listing = cache.mangas[tostring(manga.id)]
+    local listing
+    if self:chapterCacheDirReady(false) then
+        local doc = self:chapterCacheStore(manga.id):load()
+        if chapterCacheFile(doc, scope) then listing = doc.listing end
+    end
+    if listing == nil then
+        local cache = self:getStore():readKey("chapter_cache")
+        if not chapterCacheCollection(cache, scope) then return nil end
+        listing = cache.mangas[tostring(manga.id)]
+    end
     if not usableChapterListing(self, listing, scope) or tostring(listing.manga.id) ~= tostring(manga.id) then return nil end
     local result = copyLibraryValue(listing)
     result.endpoint_scope = scope
     return result
 end
 
-function SuwayomiSettings:saveChapterCache(credentials, manga, chapters)
-    local scope = self:normalizeEndpointScope(type(credentials) == "table" and credentials.server_url)
-    local listing = { manga = manga, chapters = chapters }
-    if not scope or not usableChapterListing(self, listing, scope) then return nil, "invalid_chapter_cache" end
+local function saveLegacyChapterCache(settings, scope, manga, listing)
     local cache = { version = 1, endpoint_scope = scope, mangas = {} }
-    local previous = self:getStore():readKey("chapter_cache")
+    local previous = settings:getStore():readKey("chapter_cache")
     if chapterCacheCollection(previous, scope) then
         for key, saved in pairs(previous.mangas) do
-            if usableChapterListing(self, saved, scope) and key == tostring(saved.manga.id) then
+            if usableChapterListing(settings, saved, scope) and key == tostring(saved.manga.id) then
                 cache.mangas[key] = saved
             end
         end
     end
     cache.mangas[tostring(manga.id)] = copyLibraryValue(listing)
-    local ok, err = self:getStore():saveKey("chapter_cache", cache)
+    return settings:getStore():saveKey("chapter_cache", cache)
+end
+
+function SuwayomiSettings:saveChapterCache(credentials, manga, chapters)
+    local scope = self:normalizeEndpointScope(type(credentials) == "table" and credentials.server_url)
+    local listing = { manga = manga, chapters = chapters }
+    if not scope or not usableChapterListing(self, listing, scope) then return nil, "invalid_chapter_cache" end
+    local ok, err
+    if self:chapterCacheDirReady(true) then
+        ok, err = writeChapterCacheFile(self, scope, manga.id, listing)
+        if ok then self:migrateLegacyChapterCache(scope) end
+    else
+        ok, err = saveLegacyChapterCache(self, scope, manga, listing)
+    end
     if not ok then return nil, err end
     local result = copyLibraryValue(listing)
     result.endpoint_scope = scope

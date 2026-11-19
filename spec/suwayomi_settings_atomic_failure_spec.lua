@@ -1286,4 +1286,67 @@ describe("suwayomi settings atomic failure handling", function()
         assert.are.same({}, queue.refill:snapshot())
         assert.are.equal(2, terminated)
     end)
+    describe("per-manga chapter list files", function()
+        local chapter_dir = mock_dir .. "/suwayomi_chapters"
+
+        it("keeps chapter lists out of the main settings document", function()
+            local credentials = SuwayomiSettings:load()
+            assert(SuwayomiSettings:saveChapterCache(credentials, { id = 7, title = "One" }, { { id = 71, name = "A" } }))
+            assert.is_true(io_adapter.dirs[chapter_dir])
+            local chapter_file = chapter_dir .. "/manga_7.lua"
+            assert.is_string(io_adapter.files[chapter_file])
+            assert.is_nil(io_adapter.files[settings_path]:find("chapter_cache", 1, true))
+            local before = io_adapter.files[chapter_file]
+            assert(SuwayomiSettings:saveMaxParallelChapterDownloads(3))
+            assert.are.equal(before, io_adapter.files[chapter_file])
+            assert.is_nil(io_adapter.files[settings_path]:find("\"A\"", 1, true))
+        end)
+
+        it("reads a legacy in-document cache and migrates it on the next save", function()
+            local credentials = SuwayomiSettings:load()
+            local scope = SuwayomiSettings:normalizeEndpointScope(credentials.server_url)
+            assert(SuwayomiSettings:getStore():saveKey("chapter_cache", {
+                version = 1, endpoint_scope = scope, mangas = {
+                    ["7"] = { manga = { id = 7, title = "Seven" }, chapters = { { id = 71, name = "Legacy" } } },
+                    ["8"] = { manga = { id = 8, title = "Eight" }, chapters = { { id = 81, name = "Kept" } } },
+                },
+            }))
+            assert.are.equal("Legacy", SuwayomiSettings:loadChapterCache(credentials, { id = 7 }).chapters[1].name)
+            assert(SuwayomiSettings:saveChapterCache(credentials, { id = 7, title = "Seven" }, { { id = 72, name = "New" } }))
+            assert.is_nil(io_adapter.files[settings_path]:find("chapter_cache", 1, true))
+            assert.is_nil(SuwayomiSettings:getStore():readKey("chapter_cache"))
+            SuwayomiSettings:setStore(SettingsStore:new({ path = settings_path, io = io_adapter }))
+            assert.are.equal("New", SuwayomiSettings:loadChapterCache(credentials, { id = 7 }).chapters[1].name)
+            assert.are.equal("Kept", SuwayomiSettings:loadChapterCache(credentials, { id = 8 }).chapters[1].name)
+            assert.is_string(io_adapter.files[chapter_dir .. "/manga_8.lua"])
+        end)
+
+        it("drops a legacy cache from another server without migrating it", function()
+            local credentials = SuwayomiSettings:load()
+            assert(SuwayomiSettings:getStore():saveKey("chapter_cache", {
+                version = 1, endpoint_scope = "http://other.test", mangas = {
+                    ["8"] = { manga = { id = 8 }, chapters = { { id = 81 } } },
+                },
+            }))
+            assert(SuwayomiSettings:saveChapterCache(credentials, { id = 7 }, { { id = 71 } }))
+            assert.is_nil(io_adapter.files[chapter_dir .. "/manga_8.lua"])
+            assert.is_nil(SuwayomiSettings:getStore():readKey("chapter_cache"))
+        end)
+
+        it("keeps the legacy in-document cache when the chapter folder cannot be created", function()
+            io_adapter.mkdir = nil
+            local credentials = SuwayomiSettings:load()
+            assert(SuwayomiSettings:saveChapterCache(credentials, { id = 7 }, { { id = 71, name = "Inline" } }))
+            assert.is_nil(io_adapter.dirs[chapter_dir])
+            assert.is_number(io_adapter.files[settings_path]:find("chapter_cache", 1, true))
+            assert.are.equal("Inline", SuwayomiSettings:loadChapterCache(credentials, { id = 7 }).chapters[1].name)
+        end)
+
+        it("encodes manga ids that are unsafe as file names", function()
+            local credentials = SuwayomiSettings:load()
+            assert(SuwayomiSettings:saveChapterCache(credentials, { id = "../x" }, { { id = 1 } }))
+            assert.is_string(io_adapter.files[chapter_dir .. "/manga_x2e2e2f78.lua"])
+            assert.same({ { id = 1 } }, SuwayomiSettings:loadChapterCache(credentials, { id = "../x" }).chapters)
+        end)
+    end)
 end)
