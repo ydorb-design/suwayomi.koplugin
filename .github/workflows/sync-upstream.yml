@@ -1,0 +1,74 @@
+name: Sync upstream
+
+# Merges new commits from LK4D4/suwayomi.koplugin into this fork once a day,
+# keeping the Kobo low-memory download fix on top. The merge is only pushed
+# if lint and tests pass, so a broken update never reaches the e-reader.
+# If upstream conflicts with the fix, this run fails and GitHub emails you.
+
+on:
+  schedule:
+    - cron: '23 17 * * *' # daily, about 3:23-4:23 am Hobart time
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency: sync-upstream
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          # Optional: add a SYNC_TOKEN secret (fine-grained PAT with Contents
+          # and Workflows write) so upstream changes to .github/workflows can
+          # be pushed. The default token cannot push workflow file changes.
+          token: ${{ secrets.SYNC_TOKEN || github.token }}
+
+      - name: Merge upstream master
+        id: merge
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/LK4D4/suwayomi.koplugin.git
+          git fetch upstream master
+          if git merge-base --is-ancestor upstream/master HEAD; then
+            echo "Already up to date with upstream."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git merge --no-edit upstream/master
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - uses: leafo/gh-actions-lua@v13
+        if: steps.merge.outputs.changed == 'true'
+        with:
+          luaVersion: "luajit-2.1"
+
+      - uses: leafo/gh-actions-luarocks@v6
+        if: steps.merge.outputs.changed == 'true'
+
+      - name: Install test dependencies
+        if: steps.merge.outputs.changed == 'true'
+        run: |
+          luarocks install busted
+          luarocks install dkjson
+          luarocks install luasocket
+          luarocks install luasec
+          luarocks install luacheck
+          test -s /etc/apt/sources.list.d/ubuntu.sources
+          apt_sources=(-o Dir::Etc::sourcelist=sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=-)
+          sudo apt-get "${apt_sources[@]}" update
+          sudo apt-get "${apt_sources[@]}" install -y gettext libarchive-dev
+
+      - name: Lint and test
+        if: steps.merge.outputs.changed == 'true'
+        run: |
+          luacheck --codes spec suwayomi main.lua _meta.lua
+          busted spec
+
+      - name: Push
+        if: steps.merge.outputs.changed == 'true'
+        run: git push origin HEAD:master
