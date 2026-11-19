@@ -11,7 +11,7 @@ describe("suwayomi/downloads/downloader", function()
     local modules = { "suwayomi/downloads/downloader", "suwayomi/downloads/archive",
         "suwayomi/downloads/progress_file", "suwayomi/paths", "suwayomi/api", "suwayomi/fs",
         "ffi/archiver", "ffi/libarchive_h", "ffi/util", "socket", "docsettings",
-        "suwayomi/readsync/koreader_metadata", "suwayomi/settings", "device" }
+        "suwayomi/readsync/koreader_metadata", "suwayomi/settings", "device", "ui/renderimage" }
     local first_id, second_id = string.rep("1", 32), string.rep("2", 32)
 
     local function put(path, content)
@@ -198,6 +198,72 @@ describe("suwayomi/downloads/downloader", function()
         api.fetchChapterPages = function() error("unexpected page metadata request") end
         assert.is_true(download().ok)
         assert.are.equal(1, archive.validate(target).pages)
+    end)
+
+    describe("resizing pages to the screen", function()
+        local function bigJpeg(fill)
+            -- 1400x2000 baseline JPEG header followed by filler bytes.
+            return "\255\216\255\192\0\17\8" .. string.char(math.floor(2000 / 256), 2000 % 256, math.floor(1400 / 256), 1400 % 256)
+                .. "\3" .. string.rep(fill, 4000)
+        end
+
+        local function entryNames(path)
+            local zip, names, at = bytes(path), {}, 1
+            while true do
+                local header = zip:find("PK\003\004", at, true)
+                if not header then break end
+                local low, high = zip:byte(header + 26, header + 27)
+                table.insert(names, zip:sub(header + 30, header + 29 + low + high * 256))
+                at = header + 4
+            end
+            return names
+        end
+
+        local function install(enabled)
+            package.loaded["suwayomi/settings"] = { loadResizePagesToScreen = function() return enabled end }
+            package.loaded.device = { screen = { getWidth = function() return 1264 end, getHeight = function() return 1680 end } }
+            package.loaded["ui/renderimage"] = {
+                renderImageData = function(_, _, _, _, width, height)
+                    return {
+                        writeToFile = function(_, path)
+                            local handle = assert(io.open(path, "wb"))
+                            handle:write("resized-" .. width .. "x" .. height)
+                            handle:close()
+                            return true
+                        end,
+                        free = function() end,
+                    }
+                end,
+            }
+            package.loaded["suwayomi/downloads/downloader"] = nil
+            downloader = require("suwayomi/downloads/downloader")
+            api.downloadChapterArchive = function() return { ok = false, status_code = 404 } end
+        end
+
+        it("stores oversized pages resized as JPEG when enabled", function()
+            install(true)
+            local content_types = { one = "image/png", two = "image/webp" }
+            api.downloadBinary = function(_, page)
+                return { ok = true, body = bigJpeg(page:sub(1, 1)), content_type = content_types[page] }
+            end
+            assert.is_true(download().ok)
+            assert.same({ "0001.jpg", "0002.jpg" }, entryNames(target))
+            assert.is_truthy(bytes(target):find("resized-1176x1680", 1, true))
+            assert.are.equal(2, archive.validate(target).pages)
+            for name in lfs.dir(root .. "/Source/Manga") do
+                assert.is_nil(name:match("%.page$"), name)
+            end
+        end)
+
+        it("leaves pages untouched when disabled", function()
+            install(false)
+            api.downloadBinary = function(_, page)
+                return { ok = true, body = bigJpeg(page:sub(1, 1)), content_type = "image/png" }
+            end
+            assert.is_true(download().ok)
+            assert.same({ "0001.png", "0002.png" }, entryNames(target))
+            assert.is_nil(bytes(target):find("resized-", 1, true))
+        end)
     end)
 
     it("stores page images without recompressing them", function()

@@ -160,6 +160,14 @@ local function installController(options)
                 state.saved_delete_chapters_settings = value
                 return value
             end,
+            loadResizePagesToScreen = function()
+                return state.resize_pages ~= false
+            end,
+            saveResizePagesToScreen = function(_, enabled)
+                if state.fail_resize_save then return nil, "save failed" end
+                state.resize_pages = enabled
+                return enabled
+            end,
             loadLibraryCategoryPickerBehavior = function()
                 return state.saved_category_behavior
             end,
@@ -1216,6 +1224,22 @@ describe("suwayomi/plugin/settings_controller", function()
         assert.are.equal("Category picker: Automatic", unavailable_item.text_func())
         unavailable_item.callback(unavailable_state.touchmenu)
         assert.are.equal("Library category picker settings are unavailable.", unavailable_state.messages[#unavailable_state.messages])
+    end)
+
+    it("toggles page resizing from the Downloads menu", function()
+        local plugin, state = installController()
+        local download_items = findMenuItem(plugin:buildSettingsMenu(), "Downloads").sub_item_table
+        local item = findMenuItem(download_items, "Resize pages to fit screen")
+        assert.is_table(item)
+        assert.is_string(item.help_text)
+        assert.is_true(item.checked_func())
+        item.callback()
+        assert.is_false(state.resize_pages)
+        assert.is_false(item.checked_func())
+        state.fail_resize_save = true
+        item.callback()
+        assert.is_false(state.resize_pages)
+        assert.are.same({ "save failed" }, state.messages)
     end)
 
     it("builds delete chapter settings and saves their changes", function()

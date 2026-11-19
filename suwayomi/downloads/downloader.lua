@@ -12,6 +12,7 @@ local SuwayomiAPI = require("suwayomi/api")
 local ProgressFile = require("suwayomi/downloads/progress_file")
 local Archive = require("suwayomi/downloads/archive")
 local SuwayomiPaths = require("suwayomi/paths")
+local PageResize = require("suwayomi/downloads/page_resize")
 
 local Downloader = {}
 local DOWNLOAD_RETRY_DELAYS_SECONDS = { 0.5, 1 }
@@ -393,11 +394,20 @@ local function startDownload(self, credentials, chapter, attempt)
         if not writer:setZipCompression("store") then writer.err = nil end
     end
 
+    local resize_to
+    local settings_ok, Settings = pcall(require, "suwayomi/settings")
+    if settings_ok and type(Settings) == "table" and type(Settings.loadResizePagesToScreen) == "function"
+        and Settings:loadResizePagesToScreen() then
+        local screen_width, screen_height = PageResize.screenSize()
+        if screen_width then resize_to = { width = screen_width, height = screen_height } end
+    end
+
     return {
         ok = true,
         path = chapter_path,
         total = #page_result.pages,
         job = {
+            resize_to = resize_to,
             credentials = credentials,
             pages = page_result.pages,
             writer = writer,
@@ -490,9 +500,15 @@ function Downloader:downloadNextPage(job)
     local ext = binary.content_type == "image/webp" and "webp"
         or binary.content_type == "image/png" and "png"
         or "jpg"
+    local body = binary.body
+    if job.resize_to then
+        local resized = PageResize.resize(body, job.resize_to.width, job.resize_to.height,
+            job.partial_path .. ".page")
+        if resized then body, ext = resized, "jpg" end
+    end
 
     local entry_name = string.format("%04d.%s", next_index, ext)
-    if not job.writer:addFileFromMemory(entry_name, binary.body) then
+    if not job.writer:addFileFromMemory(entry_name, body) then
         return self:failAndCleanup(job.writer.err or "Could not write chapter archive.", job.partial_path, job.writer)
     end
 

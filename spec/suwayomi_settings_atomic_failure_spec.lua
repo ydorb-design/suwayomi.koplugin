@@ -1286,6 +1286,18 @@ describe("suwayomi settings atomic failure handling", function()
         assert.are.same({}, queue.refill:snapshot())
         assert.are.equal(2, terminated)
     end)
+    it("resizes pages by default and remembers turning it off", function()
+        assert.is_true(SuwayomiSettings:loadResizePagesToScreen())
+        assert.is_false(SuwayomiSettings:saveResizePagesToScreen(false))
+        SuwayomiSettings:setStore(SettingsStore:new({ path = settings_path, io = io_adapter }))
+        assert.is_false(SuwayomiSettings:loadResizePagesToScreen())
+        io_adapter.fail_rename = true
+        local saved, err = SuwayomiSettings:saveResizePagesToScreen(true)
+        assert.is_nil(saved)
+        assert.is_string(err)
+        assert.is_false(SuwayomiSettings:loadResizePagesToScreen())
+    end)
+
     describe("per-manga chapter list files", function()
         local chapter_dir = mock_dir .. "/suwayomi_chapters"
 

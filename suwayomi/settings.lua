@@ -952,6 +952,17 @@ function SuwayomiSettings:saveDeleteChaptersSettings(value)
     return normalized
 end
 
+-- On by default: oversized pages are shrunk to the screen while downloading.
+function SuwayomiSettings:loadResizePagesToScreen()
+    return self:getStore():readKey("resize_pages_to_screen") ~= false
+end
+
+function SuwayomiSettings:saveResizePagesToScreen(enabled)
+    local ok, err = self:getStore():saveKey("resize_pages_to_screen", enabled == true)
+    if not ok then return nil, err end
+    return enabled == true
+end
+
 function SuwayomiSettings:loadAutoMarkPromptDismissed()
     return self:getStore():readKey("auto_mark_prompt_dismissed") == true
 end

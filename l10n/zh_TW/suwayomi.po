@@ -1286,6 +1286,9 @@ msgstr ""
 msgid "Reset filters"
 msgstr ""
 
+msgid "Resize pages to fit screen"
+msgstr ""
+
 msgid "Retry"
 msgstr ""
 
@@ -1423,6 +1426,12 @@ msgid "Setup wizard"
 msgstr ""
 
 msgid "Show NSFW sources: %1"
+msgstr ""
+
+msgid ""
+"Shrinks large pages to your screen size while downloading. Saves storage and "
+"makes page turns faster, but each page takes longer to download. Very large "
+"pages are kept as they are. Applies to new downloads only."
 msgstr ""
 
 msgid "Simple Login"
