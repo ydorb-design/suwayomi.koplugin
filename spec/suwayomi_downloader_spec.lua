@@ -11,7 +11,7 @@ describe("suwayomi/downloads/downloader", function()
     local modules = { "suwayomi/downloads/downloader", "suwayomi/downloads/archive",
         "suwayomi/downloads/progress_file", "suwayomi/paths", "suwayomi/api", "suwayomi/fs",
         "ffi/archiver", "ffi/libarchive_h", "ffi/util", "socket", "docsettings",
-        "suwayomi/readsync/koreader_metadata", "suwayomi/settings" }
+        "suwayomi/readsync/koreader_metadata", "suwayomi/settings", "device" }
     local first_id, second_id = string.rep("1", 32), string.rep("2", 32)
 
     local function put(path, content)
@@ -198,6 +198,27 @@ describe("suwayomi/downloads/downloader", function()
         api.fetchChapterPages = function() error("unexpected page metadata request") end
         assert.is_true(download().ok)
         assert.are.equal(1, archive.validate(target).pages)
+    end)
+
+    it("skips the direct archive on low-memory e-readers and downloads pages", function()
+        package.loaded.device = { isKobo = function() return true end }
+        package.loaded["suwayomi/downloads/downloader"] = nil
+        downloader = require("suwayomi/downloads/downloader")
+        api.downloadChapterArchive = function() error("unexpected direct archive request") end
+        assert.is_true(download(nil, root .. "/progress.txt").ok)
+        assert.are.equal(2, archive.validate(target).expected_pages)
+    end)
+
+    it("keeps the direct archive on other devices", function()
+        package.loaded.device = { isKobo = function() return false end, isAndroid = function() return true end }
+        package.loaded["suwayomi/downloads/downloader"] = nil
+        downloader = require("suwayomi/downloads/downloader")
+        api.downloadChapterArchive = function(_, _, path)
+            makeArchive(path)
+            return { ok = true, bytes = #bytes(path), content_type = "application/zip" }
+        end
+        api.fetchChapterPages = function() error("unexpected page metadata request") end
+        assert.is_true(download().ok)
     end)
 
     for _, status in ipairs({ 400, 404 }) do
