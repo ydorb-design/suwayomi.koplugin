@@ -195,14 +195,15 @@ local function defaultIoAdapter()
             return content
         end,
         mkdir = function(dir_path)
-            local ok_lfs, lfs = pcall(require, "lfs")
+            -- suwayomi/fs resolves KOReader's libkoreader-lfs; plain "lfs" does not exist there.
+            local ok_lfs, lfs = pcall(require, "suwayomi/fs")
             if not ok_lfs or not lfs or not lfs.mkdir then
                 return nil, "mkdir_unsupported"
             end
             return lfs.mkdir(dir_path)
         end,
         dir_exists = function(dir_path)
-            local ok_lfs, lfs = pcall(require, "lfs")
+            local ok_lfs, lfs = pcall(require, "suwayomi/fs")
             if ok_lfs and lfs and lfs.attributes then
                 local attr = lfs.attributes(dir_path)
                 return attr and attr.mode == "directory"
