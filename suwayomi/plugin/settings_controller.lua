@@ -656,21 +656,6 @@ function Methods:buildSettingsMenu()
                     end,
                 },
                 {
-                    text = I18n.t("Resize pages to fit screen"),
-                    help_text = I18n.t("Shrinks large pages to your screen size while downloading. Saves storage and makes page turns faster, but each page takes longer to download. Very large pages are kept as they are. Applies to new downloads only."),
-                    checked_func = function()
-                        return SuwayomiSettings:loadResizePagesToScreen()
-                    end,
-                    keep_menu_open = true,
-                    callback = function()
-                        local saved, err = SuwayomiSettings:saveResizePagesToScreen(
-                            not SuwayomiSettings:loadResizePagesToScreen())
-                        if saved == nil then
-                            self:showMessage(err or I18n.t("Failed to save settings."))
-                        end
-                    end,
-                },
-                {
                     text = I18n.t("Download help"),
                     keep_menu_open = true,
                     sub_item_table = {
@@ -720,6 +705,15 @@ function Methods:buildSettingsMenu()
     }
 end
 
+
+-- Fork-only menu items are added here, away from upstream's menu definition,
+-- so upstream edits nearby do not conflict with them.
+local buildUpstreamSettingsMenu = Methods.buildSettingsMenu
+function Methods:buildSettingsMenu(...)
+    local menu = buildUpstreamSettingsMenu(self, ...)
+    require("suwayomi/plugin/fork_settings").extend(self, menu)
+    return menu
+end
 
 SettingsController.methods = Methods
 

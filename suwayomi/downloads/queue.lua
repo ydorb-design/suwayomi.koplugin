@@ -782,7 +782,11 @@ function DownloadQueue:cleanupAttempt(job)
         and self.downloader:getChapterPathCandidates(job.download_directory, job.manga, job.chapter)
         or { self:getTargetChapterPath(job) }
     for _, path in ipairs(paths) do
-        if self.downloader.getPartialPath then os.remove(self.downloader:getPartialPath(path, job.attempt_id)) end
+        if self.downloader.getPartialPath then
+            local partial = self.downloader:getPartialPath(path, job.attempt_id)
+            os.remove(partial)
+            os.remove(partial .. ".page") -- page resize scratch file
+        end
         if self.downloader.getDirectPartialPath then os.remove(self.downloader:getDirectPartialPath(path, job.attempt_id)) end
     end
     if job.progress_path then

@@ -169,3 +169,26 @@ describe("suwayomi/downloads/page_resize", function()
         assert.is_nil(PageResize.screenSize())
     end)
 end)
+
+describe("download attempt cleanup", function()
+    it("removes the page resize scratch file with the partial archive", function()
+        package.loaded["suwayomi/downloads/queue"] = nil
+        local DownloadQueue = require("suwayomi/downloads/queue")
+        local chapter_path = os.tmpname()
+        local partial = chapter_path .. ".a1.part"
+        for _, path in ipairs({ partial, partial .. ".page" }) do
+            local handle = assert(io.open(path, "wb"))
+            handle:write("x")
+            handle:close()
+        end
+        DownloadQueue.cleanupAttempt({
+            downloader = {
+                getChapterPathCandidates = function() return { chapter_path } end,
+                getPartialPath = function(_, path, attempt_id) return path .. "." .. attempt_id .. ".part" end,
+            },
+        }, { attempt_id = "a1", worker_done = true, download_directory = "/x", manga = {}, chapter = {} })
+        assert.is_nil(io.open(partial, "rb"))
+        assert.is_nil(io.open(partial .. ".page", "rb"))
+        os.remove(chapter_path)
+    end)
+end)
