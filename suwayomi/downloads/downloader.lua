@@ -277,32 +277,22 @@ function Downloader:finalizePartialArchive(partial_path, chapter_path, attempt_i
     return { ok = true, path = chapter_path, identity = Archive.identity(chapter_path) }
 end
 
--- Low-memory e-readers (Kobo, Kindle, PocketBook, reMarkable, Cervantes) can
--- be OOM-killed while fetching and validating a whole-chapter archive from the
--- server. On those devices skip the direct archive and always use the
--- page-by-page download, which keeps memory use flat.
-local skip_direct_archive
-local function shouldSkipDirectArchive()
-    if skip_direct_archive ~= nil then return skip_direct_archive end
-    skip_direct_archive = false
-    local ok, Device = pcall(require, "device")
-    if ok and type(Device) == "table" then
-        for _, check in ipairs({ "isKobo", "isKindle", "isPocketBook", "isRemarkable", "isCervantes" }) do
-            local fn = Device[check]
-            if type(fn) == "function" then
-                local called, result = pcall(fn, Device)
-                if called and result then
-                    skip_direct_archive = true
-                    break
-                end
-            end
-        end
+-- Screen size to resize pages to, or nil when "Resize pages to fit screen" is
+-- off or there is no screen (outside KOReader).
+local function resizeTarget()
+    local ok, Settings = pcall(require, "suwayomi/settings")
+    if not ok or type(Settings) ~= "table" or type(Settings.loadResizePagesToScreen) ~= "function"
+        or not Settings:loadResizePagesToScreen() then
+        return nil
     end
-    return skip_direct_archive
+    local width, height = PageResize.screenSize()
+    if width then return { width = width, height = height } end
 end
 
 local function downloadDirect(self, credentials, chapter, attempt)
-    if shouldSkipDirectArchive() then
+    -- Server archives arrive already packed, so pages can only be resized when
+    -- downloaded one by one.
+    if resizeTarget() then
         return nil
     end
     if not SuwayomiAPI.downloadChapterArchive or not chapter or chapter.id == nil then
@@ -394,13 +384,7 @@ local function startDownload(self, credentials, chapter, attempt)
         if not writer:setZipCompression("store") then writer.err = nil end
     end
 
-    local resize_to
-    local settings_ok, Settings = pcall(require, "suwayomi/settings")
-    if settings_ok and type(Settings) == "table" and type(Settings.loadResizePagesToScreen) == "function"
-        and Settings:loadResizePagesToScreen() then
-        local screen_width, screen_height = PageResize.screenSize()
-        if screen_width then resize_to = { width = screen_width, height = screen_height } end
-    end
+    local resize_to = resizeTarget()
 
     return {
         ok = true,

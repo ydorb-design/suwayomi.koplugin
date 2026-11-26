@@ -952,9 +952,12 @@ function SuwayomiSettings:saveDeleteChaptersSettings(value)
     return normalized
 end
 
--- On by default: oversized pages are shrunk to the screen while downloading.
+-- Oversized pages are shrunk to the screen while downloading. Defaults to on
+-- for e-readers, where storage, memory and page-turn speed matter most.
 function SuwayomiSettings:loadResizePagesToScreen()
-    return self:getStore():readKey("resize_pages_to_screen") ~= false
+    local saved = self:getStore():readKey("resize_pages_to_screen")
+    if type(saved) == "boolean" then return saved end
+    return require("suwayomi/downloads/page_resize").isEReader()
 end
 
 function SuwayomiSettings:saveResizePagesToScreen(enabled)

@@ -4,11 +4,11 @@ Personal fork of [LK4D4/suwayomi.koplugin](https://github.com/LK4D4/suwayomi.kop
 
 ## Changes from upstream
 
-- **Low-memory e-reader downloads.** On Kobo, Kindle, PocketBook, reMarkable and
-  Cervantes, the downloader skips the whole-chapter archive (`downloadDirect`) and
-  always downloads page by page. Fetching and validating the full archive could
-  trigger the Linux OOM killer and crash KOReader. Other devices are unchanged.
-  See `suwayomi/downloads/downloader.lua` and `spec/suwayomi_downloader_spec.lua`.
+- **Server archive memory fix.** Downloading a chapter the server already
+  packed as a CBZ rebuilt a 64 KB string for every ~2 KB network chunk, about
+  250 MB of garbage per 4 MB archive, which got Kobo and Kindle download workers
+  killed for running out of memory. The archive tail is now kept as a short list
+  of chunks and joined once (`suwayomi/api/transport.lua`).
 - **Uncompressed chapter archives.** Page-by-page downloads write CBZs with zip
   "store" instead of deflate. Pages are already-compressed images, so deflate only
   cost CPU time. Older KOReader builds without `setZipCompression` keep the default.
@@ -20,10 +20,12 @@ Personal fork of [LK4D4/suwayomi.koplugin](https://github.com/LK4D4/suwayomi.kop
 - **Connection reuse for page downloads.** Each chapter download keeps one HTTP/1.1
   connection instead of a new TCP + TLS connection per page. Redirects and
   connection failures fall back to the original request code.
-- **Resize pages to fit screen** (Settings > Downloads, on by default). Oversized
-  pages are shrunk to the screen while downloading and stored as JPEG. Spreads fit
-  the rotated screen, long strips fit its width, and pages over 8 MP, near screen
-  size, or that would not get smaller are kept unchanged.
+- **Resize pages to fit screen** (Settings > Downloads; on by default on Kobo,
+  Kindle, PocketBook, reMarkable and Cervantes). Oversized pages are shrunk to the
+  screen while downloading and stored as JPEG. Spreads fit the rotated screen, long
+  strips fit its width, and pages over 8 MP, near screen size, or that would not
+  get smaller are kept unchanged. While it is on, chapters download page by page so
+  they can be resized; when off, archives the server already made are used.
 
 ## Staying up to date
 

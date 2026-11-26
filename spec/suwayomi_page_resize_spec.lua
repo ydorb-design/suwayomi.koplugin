@@ -162,6 +162,15 @@ describe("suwayomi/downloads/page_resize", function()
         end)
     end)
 
+    it("detects KOReader e-reader platforms", function()
+        package.loaded.device = { isKobo = function() return false end, isKindle = function() return true end }
+        assert.is_true(PageResize.isEReader())
+        package.loaded.device = { isKobo = function() return false end, isAndroid = function() return true end }
+        assert.is_false(PageResize.isEReader())
+        package.loaded.device = { isKobo = function() error("not ready") end }
+        assert.is_false(PageResize.isEReader())
+    end)
+
     it("reads the screen size from KOReader's device", function()
         package.loaded.device = { screen = { getWidth = function() return 1264 end, getHeight = function() return 1680 end } }
         assert.same({ 1264, 1680 }, { PageResize.screenSize() })

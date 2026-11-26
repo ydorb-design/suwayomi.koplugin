@@ -125,6 +125,20 @@ function PageResize.resize(body, screen_width, screen_height, scratch_path)
     return result
 end
 
+-- True on KOReader's e-reader platforms, where resizing pays off the most.
+function PageResize.isEReader()
+    local ok, Device = pcall(require, "device")
+    if not ok or type(Device) ~= "table" then return false end
+    for _, check in ipairs({ "isKobo", "isKindle", "isPocketBook", "isRemarkable", "isCervantes" }) do
+        local fn = Device[check]
+        if type(fn) == "function" then
+            local called, result = pcall(fn, Device)
+            if called and result then return true end
+        end
+    end
+    return false
+end
+
 -- Current screen size, or nil outside KOReader.
 function PageResize.screenSize()
     local ok, Device = pcall(require, "device")

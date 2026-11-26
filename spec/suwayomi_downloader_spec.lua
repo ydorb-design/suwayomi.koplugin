@@ -284,19 +284,25 @@ describe("suwayomi/downloads/downloader", function()
         assert.are.equal(2, archive.validate(target).pages)
     end)
 
-    it("skips the direct archive on low-memory e-readers and downloads pages", function()
-        package.loaded.device = { isKobo = function() return true end }
+    local function withResizeSetting(enabled)
+        package.loaded["suwayomi/settings"] = { loadResizePagesToScreen = function() return enabled end }
+        package.loaded.device = {
+            isKobo = function() return true end,
+            screen = { getWidth = function() return 1264 end, getHeight = function() return 1680 end },
+        }
         package.loaded["suwayomi/downloads/downloader"] = nil
         downloader = require("suwayomi/downloads/downloader")
+    end
+
+    it("downloads pages instead of the server archive when resizing is on", function()
+        withResizeSetting(true)
         api.downloadChapterArchive = function() error("unexpected direct archive request") end
         assert.is_true(download(nil, root .. "/progress.txt").ok)
         assert.are.equal(2, archive.validate(target).expected_pages)
     end)
 
-    it("keeps the direct archive on other devices", function()
-        package.loaded.device = { isKobo = function() return false end, isAndroid = function() return true end }
-        package.loaded["suwayomi/downloads/downloader"] = nil
-        downloader = require("suwayomi/downloads/downloader")
+    it("uses the server archive on e-readers when resizing is off", function()
+        withResizeSetting(false)
         api.downloadChapterArchive = function(_, _, path)
             makeArchive(path)
             return { ok = true, bytes = #bytes(path), content_type = "application/zip" }

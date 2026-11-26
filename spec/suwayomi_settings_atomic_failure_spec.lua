@@ -1286,7 +1286,17 @@ describe("suwayomi settings atomic failure handling", function()
         assert.are.same({}, queue.refill:snapshot())
         assert.are.equal(2, terminated)
     end)
-    it("resizes pages by default and remembers turning it off", function()
+    it("resizes pages by default only on e-readers", function()
+        local saved_device = package.loaded.device
+        package.loaded.device = { isKobo = function() return false end, isAndroid = function() return true end }
+        assert.is_false(SuwayomiSettings:loadResizePagesToScreen())
+        package.loaded.device = saved_device
+    end)
+
+    it("resizes pages by default on e-readers and remembers turning it off", function()
+        local saved_device = package.loaded.device
+        package.loaded.device = { isKobo = function() return true end }
+        finally(function() package.loaded.device = saved_device end)
         assert.is_true(SuwayomiSettings:loadResizePagesToScreen())
         assert.is_false(SuwayomiSettings:saveResizePagesToScreen(false))
         SuwayomiSettings:setStore(SettingsStore:new({ path = settings_path, io = io_adapter }))

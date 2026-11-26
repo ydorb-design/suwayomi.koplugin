@@ -22,7 +22,7 @@ end
 local function resizePagesItem(controller)
     return {
         text = I18n.t("Resize pages to fit screen"),
-        help_text = I18n.t("Shrinks large pages to your screen size while downloading. Saves storage and makes page turns faster, but each page takes longer to download. Very large pages are kept as they are. Applies to new downloads only."),
+        help_text = I18n.t("Shrinks large pages to your screen size while downloading. Saves storage and makes page turns faster, but each page takes longer to download. Very large pages are kept as they are. When off, chapters already downloaded on the server are fetched in one go instead. Applies to new downloads only."),
         checked_func = function()
             return settings():loadResizePagesToScreen()
         end,
